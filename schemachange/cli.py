@@ -390,6 +390,18 @@ class SnowflakeSchemachangeSession:
     d_script_checksum['checksum'] = checksums
     return d_script_checksum
 
+  def fetch_description_change_history(description, change_history_table, snowflake_session_parameters, autocommit, verbose):
+    query = "SELECT VERSION FROM {0}.{1} WHERE SCRIPT_TYPE = 'D' and DESCRIPTION='{2}' ORDER BY INSTALLED_ON DESC LIMIT 1".format(change_history_table['schema_name'], change_history_table['table_name'],description)
+    results = execute_snowflake_query(change_history_table['database_name'], query, snowflake_session_parameters, autocommit, verbose)
+
+    # Collect all the results into a list
+    change_history = list()
+    for cursor in results:
+      for row in cursor:
+        change_history.append(row[0])
+
+  return change_history
+
   def fetch_change_history(self, change_history_table):
     query = self._q_ch_fetch.format(**change_history_table)
     results = self.execute_snowflake_query(query)
@@ -507,13 +519,26 @@ def deploy_command(config):
   all_scripts = get_all_scripts_recursively(config['root_folder'], config['verbose'])
   all_script_names = list(all_scripts.keys())
   # Sort scripts such that versioned scripts get applied first and then the repeatable ones.
-  all_script_names_sorted =   sorted_alphanumeric([script for script in all_script_names if script[0] == 'V']) \
+  all_script_names_sorted =   sorted_alphanumeric([script for script in all_script_names if script[0] == 'D']) \
+                            + sorted_alphanumeric([script for script in all_script_names if script[0] == 'V']) \
                             + sorted_alphanumeric([script for script in all_script_names if script[0] == 'R']) \
                             + sorted_alphanumeric([script for script in all_script_names if script[0] == 'A'])
 
   # Loop through each script in order and apply any required changes
   for script_name in all_script_names_sorted:
     script = all_scripts[script_name]
+
+
+    description_change_history = fetch_description_change_history(script['script_description'],change_history_table, snowflake_session_parameters, config['autocommit'], config['verbose'])
+    description_max_published_version = ''
+    if description_change_history:
+      description_max_published_version = description_change_history[0];
+
+    if script_name[0] == 'D' and get_alphanum_key(script['script_version']) <= get_alphanum_key(description_max_published_version):
+      if config['verbose']:
+        print("Skipping change script %s because it's older than the most recently applied change (%s)" % (script['script_name'], description_max_published_version))
+      scripts_skipped += 1
+      continue
 
     # Apply a versioned-change script only if the version is newer than the most recent change in the database
     # Apply any other scripts, i.e. repeatable scripts, irrespective of the most recent change in the database
@@ -661,6 +686,7 @@ def get_schemachange_config(config_file_path, root_folder, modules_folder, snowf
 def get_all_scripts_recursively(root_directory, verbose):
   all_files = dict()
   all_versions = list()
+  all_description_Files = list()
   # Walk the entire directory structure recursively
   for (directory_path, directory_names, file_names) in os.walk(root_directory):
     for file_name in file_names:
@@ -672,12 +698,17 @@ def get_all_scripts_recursively(root_directory, verbose):
         file_name.strip(), re.IGNORECASE)
       always_script_name_parts = re.search(r'^([A])__(.+?)\.(?:sql|sql.jinja)$', \
         file_name.strip(), re.IGNORECASE)
+      description_script_name_parts = re.search(r'^([D])(.+?)__(.+?)\.(?:sql|sql.jinja)$', file_name.strip(), re.IGNORECASE)
 
       # Set script type depending on whether it matches the versioned file naming format
       if script_name_parts is not None:
         script_type = 'V'
         if verbose:
           print("Found Versioned file " + file_full_path)
+      elif description_script_name_parts is not None:
+        script_type = 'D'
+        if verbose:
+          print("Found Description Versioned file " + file_full_path)
       elif repeatable_script_name_parts is not None:
         script_type = 'R'
         if verbose:
@@ -703,11 +734,13 @@ def get_all_scripts_recursively(root_directory, verbose):
       script['script_name'] = script_name
       script['script_full_path'] = file_full_path
       script['script_type'] = script_type
-      script['script_version'] = '' if script_type in ['R', 'A'] else script_name_parts.group(2)
+      script['script_version'] = '' if script_type in ['R', 'A'] else script_name_parts.group(2) if script_type  == 'V' else description_script_name_parts.group(2)
       if script_type == 'R':
         script['script_description'] = repeatable_script_name_parts.group(2).replace('_', ' ').capitalize()
       elif script_type == 'A':
         script['script_description'] = always_script_name_parts.group(2).replace('_', ' ').capitalize()
+      elif script_type == 'D':
+        script['script_description'] = description_script_name_parts.group(3).replace('_', ' ').capitalize()
       else:
         script['script_description'] = script_name_parts.group(3).replace('_', ' ').capitalize()
 
@@ -722,6 +755,11 @@ def get_all_scripts_recursively(root_directory, verbose):
         if script['script_version'] in all_versions:
           raise ValueError(_err_dup_scripts_version.format(**script)) 
         all_versions.append(script['script_version'])
+
+      if script_type == 'D':
+        if script['script_name'] in all_description_Files:
+          raise ValueError("The object file exists more than once (second instance %s)" % (script['script_full_path']))
+        all_description_Files.append(script['script_name'])
 
   return all_files
 
