@@ -390,9 +390,9 @@ class SnowflakeSchemachangeSession:
     d_script_checksum['checksum'] = checksums
     return d_script_checksum
 
-  def fetch_description_change_history(description, change_history_table, snowflake_session_parameters, autocommit, verbose):
+  def fetch_description_change_history(self, description, change_history_table, snowflake_session_parameters, autocommit, verbose):
     query = "SELECT VERSION FROM {0}.{1} WHERE SCRIPT_TYPE = 'D' and DESCRIPTION='{2}' ORDER BY INSTALLED_ON DESC LIMIT 1".format(change_history_table['schema_name'], change_history_table['table_name'],description)
-    results = execute_snowflake_query(change_history_table['database_name'], query, snowflake_session_parameters, autocommit, verbose)
+    results = self.execute_snowflake_query(change_history_table['database_name'], query, snowflake_session_parameters, autocommit, verbose)
 
     # Collect all the results into a list
     change_history = list()
@@ -400,7 +400,7 @@ class SnowflakeSchemachangeSession:
       for row in cursor:
         change_history.append(row[0])
 
-  return change_history
+    return change_history
 
   def fetch_change_history(self, change_history_table):
     query = self._q_ch_fetch.format(**change_history_table)
@@ -529,7 +529,7 @@ def deploy_command(config):
     script = all_scripts[script_name]
 
 
-    description_change_history = fetch_description_change_history(script['script_description'],change_history_table, snowflake_session_parameters, config['autocommit'], config['verbose'])
+    description_change_history = session.fetch_description_change_history(script['script_description'],change_history_table, session.snowflake_session_parameters, config['autocommit'], config['verbose'])
     description_max_published_version = ''
     if description_change_history:
       description_max_published_version = description_change_history[0];
