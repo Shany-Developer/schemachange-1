@@ -740,7 +740,7 @@ def get_all_scripts_recursively(root_directory, verbose):
       elif script_type == 'A':
         script['script_description'] = always_script_name_parts.group(2).replace('_', ' ').capitalize()
       elif script_type == 'D':
-        script['script_description'] = description_script_name_parts.group(3).replace('_', ' ').capitalize()
+        script['script_description'] = os.path.join(os.path.relpath(directory_path,root_directory) , description_script_name_parts.group(3).replace('_', ' ')).capitalize()
       else:
         script['script_description'] = script_name_parts.group(3).replace('_', ' ').capitalize()
 
