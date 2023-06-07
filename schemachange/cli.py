@@ -56,7 +56,7 @@ _log_skip_v = "Skipping change script {script_name} because it's older than the 
   + "applied change ({max_published_version})"
 _log_skip_r ="Skipping change script {script_name} because there is no change since the last " \
   + "execution"
-_log_apply =  "Applying change script {script_name}"  
+_log_apply =  "Applying change script {script_name} for description {script_description}"  
 _log_apply_set_complete  =  "Successfully applied {scripts_applied} change scripts (skipping " \
   + "{scripts_skipped}) \nCompleted successfully" 
 _err_vars_config = "vars did not parse correctly, please check its configuration"
